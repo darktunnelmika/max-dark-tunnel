@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.1.2"
+SCRIPT_VER="1.1.3"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -895,10 +895,14 @@ screen_dashboard() {
 # ========================================================== MAINTENANCE ====
 update_script() {
   local url tmp nv
-  url="$(cat "$UPDATE_URL_FILE" 2>/dev/null)"; url="${url:-$RAW_BASE/max-dark-tunnel.sh}"
+  url="$(cat "$UPDATE_URL_FILE" 2>/dev/null)"
+  url="${url:-https://github.com/$GH_REPO/releases/latest/download/max-dark-tunnel.sh}"
   tmp="$(mktemp)"
   info "downloading manager"
-  curl -fsSL --retry 3 --max-time 60 -o "$tmp" "$url" || { bad "download failed"; rm -f "$tmp"; return; }
+  # release asset is fresh; fall back to raw with a cache-buster
+  if ! curl -fsSL --retry 2 --max-time 60 -o "$tmp" "$url" || ! grep -q 'MAXDARK-TUNNEL-SCRIPT' "$tmp"; then
+    curl -fsSL --retry 3 --max-time 60 -o "$tmp" "$RAW_BASE/max-dark-tunnel.sh?cb=$(date +%s)" || { bad "download failed"; rm -f "$tmp"; return; }
+  fi
   sed -i 's/\r$//' "$tmp"
   grep -q 'MAXDARK-TUNNEL-SCRIPT' "$tmp" || { bad "not the manager script - aborted"; rm -f "$tmp"; return; }
   bash -n "$tmp" 2>/dev/null || { bad "syntax errors - aborted"; rm -f "$tmp"; return; }

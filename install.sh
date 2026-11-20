@@ -9,7 +9,8 @@
 set -u
 
 REPO="darktunnelmika/max-dark-tunnel"
-RAW="https://raw.githubusercontent.com/$REPO/main/max-dark-tunnel.sh"
+MGR_REL="https://github.com/$REPO/releases/latest/download/max-dark-tunnel.sh"
+MGR_RAW="https://raw.githubusercontent.com/$REPO/main/max-dark-tunnel.sh"
 DEST="/usr/local/bin/maxdark"
 BASE_DIR="/etc/max-dark-tunnel"
 
@@ -47,10 +48,13 @@ fi
 tmp="$(mktemp)" || { bad "cannot create temp file"; exit 1; }
 trap 'rm -f "$tmp"' EXIT
 
+# The release asset is served fresh; raw.githubusercontent.com caches for
+# minutes, which is why a re-run could update the core but not the manager.
 info "downloading manager"
-if ! curl -fsSL --retry 3 --max-time 60 -o "$tmp" "$RAW"; then
-  bad "download failed - check connectivity to raw.githubusercontent.com"
-  exit 1
+if ! curl -fsSL --retry 2 --max-time 60 -o "$tmp" "$MGR_REL" \
+   || ! grep -q 'MAXDARK-TUNNEL-SCRIPT' "$tmp"; then
+  curl -fsSL --retry 3 --max-time 60 -o "$tmp" "$MGR_RAW?cb=$(date +%s)" \
+    || { bad "download failed - check connectivity to github"; exit 1; }
 fi
 sed -i 's/\r$//' "$tmp"
 grep -q 'MAXDARK-TUNNEL-SCRIPT' "$tmp" || { bad "downloaded file is not the manager"; exit 1; }
@@ -60,7 +64,7 @@ ver="$(grep -m1 '^SCRIPT_VER=' "$tmp" | cut -d'"' -f2)"
 mkdir -p "$BASE_DIR" && chmod 700 "$BASE_DIR"
 [ -f "$DEST" ] && cp -f "$DEST" "$DEST.bak" 2>/dev/null
 install -m 0755 "$tmp" "$DEST" || { bad "could not write $DEST"; exit 1; }
-echo "$RAW" > "$BASE_DIR/update.url"
+echo "$MGR_REL" > "$BASE_DIR/update.url"
 [ -n "$MIRROR" ] && echo "${MIRROR%/}" > "$BASE_DIR/core.mirror"
 ok "manager v${ver:-?} installed as: maxdark"
 
