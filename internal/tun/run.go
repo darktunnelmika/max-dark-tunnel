@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -86,6 +87,8 @@ func Run(ctx context.Context, cfg *config.Config, st *status.Tracker) error {
 	var peerSeen atomic.Value
 	peerSeen.Store(cfg.PeerIP())
 
+	loss := &lossMeter{}
+
 	// tun -> link
 	go func() {
 		buf := make([]byte, 1+65535)
@@ -129,6 +132,9 @@ func Run(ctx context.Context, cfg *config.Config, st *status.Tracker) error {
 					peerSeen.Store(from.String())
 				}
 			}
+			if p[0] == pktKeepalive && len(p) >= 5 {
+				loss.seen(binary.BigEndian.Uint32(p[1:]), st)
+			}
 			if p[0] == pktData && len(p) > 1 {
 				if _, err := dev.Write(p[1:]); err == nil {
 					st.AddRx(len(p) - 1)
@@ -143,17 +149,25 @@ func Run(ctx context.Context, cfg *config.Config, st *status.Tracker) error {
 		}
 	}
 
-	ka := pk.Seal(nil, []byte{pktKeepalive})
+	var ka []byte
+	var kaSeq uint32
+	kaMsg := make([]byte, 5)
 	t := time.NewTicker(3 * time.Second)
 	defer t.Stop()
 	for {
-		// Re-seal each time so keepalives never repeat byte-for-byte.
-		ka = pk.Seal(ka[:0], []byte{pktKeepalive})
+		// Numbered, so the peer can tell how many never arrived.
+		kaSeq++
+		kaMsg[0] = pktKeepalive
+		binary.BigEndian.PutUint32(kaMsg[1:], kaSeq)
+		ka = pk.Seal(ka[:0], kaMsg)
 		_ = link.Send(ka)
 		live := time.Since(time.Unix(0, lastRx.Load())) < 12*time.Second
 		n := 0
 		if live {
 			n = 1
+		}
+		if !live {
+			loss.reset()
 		}
 		st.Set(live, n, peerSeen.Load().(string))
 		select {
@@ -193,4 +207,40 @@ func startTunForwarders(ctx context.Context, cfg *config.Config, peerTun string,
 		}
 	}
 	return nil
+}
+
+// lossMeter turns the gaps in the peer's keepalive numbers into a loss
+// percentage. A link can stay "connected" on the odd keepalive that gets
+// through while dropping nearly all traffic; this is what shows it.
+type lossMeter struct {
+	mu          sync.Mutex
+	first, last uint32
+	got         int
+}
+
+const lossWindow = 8 // keepalives per measurement (~24s)
+
+func (m *lossMeter) reset() {
+	m.mu.Lock()
+	m.got = 0
+	m.mu.Unlock()
+}
+
+func (m *lossMeter) seen(seq uint32, st *status.Tracker) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.got == 0 || seq <= m.last { // first one, or the peer restarted
+		m.first, m.last, m.got = seq, seq, 1
+		return
+	}
+	m.last = seq
+	m.got++
+	if span := int(m.last-m.first) + 1; span >= lossWindow {
+		pct := 100 * (span - m.got) / span
+		if pct < 0 {
+			pct = 0
+		}
+		st.SetLoss(pct)
+		m.first, m.got = seq, 1
+	}
 }

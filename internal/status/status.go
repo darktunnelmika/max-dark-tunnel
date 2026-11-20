@@ -22,6 +22,7 @@ type Tracker struct {
 	sessions  int
 	transport string
 	rx, tx    atomic.Uint64
+	loss      atomic.Int32 // percent of keepalives lost, -1 = not measured
 }
 
 // Setup sends log output to stdout and the log file.
@@ -41,6 +42,7 @@ func Setup(logFile string) {
 
 func New(path, transport string) *Tracker {
 	t := &Tracker{path: path, since: time.Now(), transport: transport}
+	t.loss.Store(-1)
 	if path != "" {
 		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	}
@@ -75,6 +77,16 @@ func (t *Tracker) Set(live bool, sessions int, peer string) {
 	}
 }
 
+// SetLoss records the share of the peer's keepalives that never arrived.
+func (t *Tracker) SetLoss(pct int) {
+	prev := t.loss.Swap(int32(pct))
+	if pct >= 30 && prev < 30 {
+		log.Printf("link is lossy: %d%% of keepalives lost - this route may filter or rate limit this protocol", pct)
+	} else if pct < 30 && prev >= 30 {
+		log.Printf("link loss back to %d%%", pct)
+	}
+}
+
 func (t *Tracker) AddRx(n int) {
 	if t != nil {
 		t.rx.Add(uint64(n))
@@ -104,6 +116,7 @@ func (t *Tracker) write() {
 		"transport": t.transport,
 		"rx":        t.rx.Load(),
 		"tx":        t.tx.Load(),
+		"loss":      t.loss.Load(),
 		"updated":   time.Now().Unix(),
 		"pid":       os.Getpid(),
 	}

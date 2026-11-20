@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.0.1"
+SCRIPT_VER="1.0.2"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -253,8 +253,10 @@ link_state() { "$BIN_PATH" status -c "$TUN_DIR/$1.json" 2>/dev/null | sed -n 's/
 state_badge() {
   local s; s="$(svc_state "$1")"
   if [ "$s" != active ]; then printf '%s%s%s' "$R" "${s:-stopped}" "$N"; return; fi
+  local loss; loss="$("$BIN_PATH" status -c "$TUN_DIR/$1.json" 2>/dev/null | sed -n 's/^loss=\([0-9]*\)%$/\1/p')"
   case "$(link_state "$1")" in
-    connected) printf '%srunning · connected%s' "$G" "$N" ;;
+    connected) if [ "${loss:-0}" -ge 30 ]; then printf '%srunning · %sconnected, %s%% loss%s' "$G" "$Y" "$loss" "$N"
+               else printf '%srunning · connected%s' "$G" "$N"; fi ;;
     *)         printf '%srunning · %snot connected%s' "$G" "$Y" "$N" ;;
   esac
 }
@@ -637,6 +639,7 @@ join_code() {  # join_code CODE [quiet]
   start_tunnel "$name"
   info "tunnel $name started ($tr${car:+/$car}), waiting for the link"
   if wait_connected "$name" 20; then ok "connected - tunnel is live"
+    dim "packet loss is measured over the next ~30s: see Manage > Status"
   else
     warn "not connected yet. check: the IRAN side is running, ports/protocol are open"
     dim "logs: tail -f $LOG_DIR/$name.log"

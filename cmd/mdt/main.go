@@ -205,7 +205,9 @@ func cmdStatus(args []string) error {
 		Transport string `json:"transport"`
 		Rx, Tx    uint64
 		Updated   int64 `json:"updated"`
+		Loss      int   `json:"loss"`
 	}
+	m.Loss = -1
 	_ = json.Unmarshal(b, &m)
 	if time.Since(time.Unix(m.Updated, 0)) > 20*time.Second {
 		m.State = "stale"
@@ -213,5 +215,8 @@ func cmdStatus(args []string) error {
 	fmt.Printf("state=%s\npeer=%s\nsessions=%d\ntransport=%s\nuptime=%s\nrx=%s\ntx=%s\n",
 		m.State, m.Peer, m.Sessions, m.Transport,
 		time.Since(time.Unix(m.Since, 0)).Truncate(time.Second), status.Human(m.Rx), status.Human(m.Tx))
+	if m.Loss >= 0 && m.State == "connected" {
+		fmt.Printf("loss=%d%%\n", m.Loss)
+	}
 	return nil
 }
