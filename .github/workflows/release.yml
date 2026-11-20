@@ -1,10 +1,10 @@
 name: release
 
-# Push a tag like v1.0.0 to build the core and publish a release.
-# The installer always downloads .../releases/latest/download/mdt-linux-<arch>.
+# Publish a GitHub Release (e.g. tag v1.0.0) and this attaches the core
+# binaries to it. The installer downloads .../releases/latest/download/mdt-linux-<arch>.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -37,4 +37,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          tag_name: ${{ github.event.release.tag_name }}
