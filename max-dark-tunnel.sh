@@ -201,12 +201,41 @@ arch_name() {
   esac
 }
 
-public_ip() {
-  local u ip
-  for u in https://api.ipify.org https://ipv4.icanhazip.com https://ifconfig.me/ip https://ip.sb; do
-    ip="$(curl -4 -fsS --max-time 4 "$u" 2>/dev/null | tr -d '[:space:]')"
-    valid_ip4 "$ip" && { echo "$ip"; return; }
+is_private_ip4() {
+  case "$1" in
+    10.*|127.*|169.254.*|192.168.*) return 0 ;;
+    172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 0 ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 0 ;;
+  esac
+  return 1
+}
+
+# Public IPv4 addresses configured on this machine's own interfaces.
+local_public_ips() {
+  local a
+  for a in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
+    is_private_ip4 "$a" || echo "$a"
   done
+}
+
+# A "what is my ip" lookup alone is not trustworthy here: on a server whose
+# outbound traffic leaves through another tunnel it returns that tunnel's
+# exit address, and the peer would then dial the wrong host. An address that
+# is actually configured on an interface wins; the lookup only decides
+# between several of them, or covers a NAT-ed server that has none.
+public_ip() {
+  local u web="" locals first
+  for u in https://api.ipify.org https://ipv4.icanhazip.com https://ifconfig.me/ip; do
+    web="$(curl -4 -fsS --max-time 4 "$u" 2>/dev/null | tr -d '[:space:]')"
+    valid_ip4 "$web" && break; web=""
+  done
+  locals="$(local_public_ips)"
+  if [ -n "$locals" ]; then
+    if [ -n "$web" ] && grep -qx "$web" <<<"$locals"; then echo "$web"; return; fi
+    first="$(head -1 <<<"$locals")"
+    echo "$first"; return
+  fi
+  [ -n "$web" ] && { echo "$web"; return; }
   ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'
 }
 
@@ -501,6 +530,11 @@ screen_new_iran() {
   echo
   info "detecting this server's public IP"
   iip="$(public_ip)"
+  local web_ip; web_ip="$(curl -4 -fsS --max-time 4 https://api.ipify.org 2>/dev/null | tr -d '[:space:]')"
+  if valid_ip4 "$web_ip" && [ "$web_ip" != "$iip" ]; then
+    warn "a web lookup reports $web_ip, but this server's own address is $iip"
+    dim "outbound traffic here leaves through another tunnel; $iip is what KHAREJ must reach"
+  fi
   while :; do
     ask "IRAN public IP" "$iip"; iip="$ANS"
     valid_ip4 "$iip" && break; bad "invalid IPv4"
