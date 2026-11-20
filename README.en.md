@@ -38,6 +38,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 
 - **reverse**: IRAN listens, KHAREJ dials. **direct**: KHAREJ listens, IRAN dials.
 - Tun/DNS addresses: `10.20.N.1` (iran) / `10.20.N.2` (kharej), N assigned per tunnel.
+- **DNS mode:** some networks police DNS-shaped traffic. On one Iranian datacenter line the iran-to-kharej direction was cut after about 12 queries in a burst, so use DNS only when the other modes are blocked, and try a port other than 53 if it does not connect.
 - User ports: `443` → kharej 443; `2083>8443` → iran 2083 lands on kharej 8443.
 
 ## Checking
