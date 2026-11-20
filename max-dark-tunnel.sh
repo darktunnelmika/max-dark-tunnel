@@ -240,6 +240,24 @@ next_subnet() {
   echo 251
 }
 
+port_busy() {  # port_busy tcp|udp PORT -> 0 if something already listens there
+  local f=-lnt; [ "$1" = udp ] && f=-lnu
+  ss -H "$f" "sport = :$2" 2>/dev/null | grep -q .
+}
+
+# warn_ports tcp|udp CSV -> 1 if any listen port is taken
+check_ports_free() {
+  local proto="$1" e p rc=0
+  for e in ${2//,/ }; do
+    p="${e%%>*}"
+    if port_busy "$proto" "$p"; then
+      bad "$proto port $p is already in use here: $(ss -H -lntup "sport = :$p" 2>/dev/null | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2)"
+      rc=1
+    fi
+  done
+  return $rc
+}
+
 open_fw() {  # open_fw tcp|udp PORT  (only when ufw is active)
   command -v ufw >/dev/null 2>&1 || return 0
   ufw status 2>/dev/null | grep -q 'Status: active' || return 0
@@ -447,6 +465,10 @@ screen_new_iran() {
       ask "carrier port" "$pdef"; port="$ANS"
       valid_port "$port" || { bad "1-65535"; continue; }
       [ "$tr" = ssh ] && [ "$port" = 22 ] && { bad "22 is the real sshd - pick another"; continue; }
+      if [ "$dir" = reverse ] && [ "$tr" != dns ]; then
+        local pp=tcp; [ "$car" = udp ] && pp=udp
+        check_ports_free "$pp" "$port" || continue
+      fi
       break
     done
   fi
@@ -496,11 +518,16 @@ screen_new_iran() {
   dim "ports your users connect to on this server. 443  or  443>8443 (lands on 8443)"
   while :; do
     ask "TCP ports (comma separated)" "443"; tcpp="${ANS// /}"
-    valid_ports_csv "$tcpp" && break; bad "invalid list"
+    valid_ports_csv "$tcpp" || { bad "invalid list"; continue; }
+    check_ports_free tcp "$tcpp" || { dim "pick ports nothing else on this server uses"; continue; }
+    [ -n "$port" ] && [ "$dir" = reverse ] && [[ ",$tcpp," == *",$port,"* || ",$tcpp," == *",$port>"* ]] && { bad "$port is the carrier port"; continue; }
+    break
   done
   while :; do
     ask "UDP ports (empty for none)" ""; udpp="${ANS// /}"
-    valid_ports_csv "$udpp" && break; bad "invalid list"
+    valid_ports_csv "$udpp" || { bad "invalid list"; continue; }
+    check_ports_free udp "$udpp" || continue
+    break
   done
 
   sub=""; mtu=""

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/darktunnelmika/max-dark-tunnel/internal/crypt"
@@ -157,6 +158,17 @@ func newUDP(bind string, port int, peer string, listen bool) (*udpLink, error) {
 	var err error
 	if listen {
 		l.pc, err = net.ListenPacket("udp4", net.JoinHostPort(bind, strconv.Itoa(port)))
+		if err != nil && errors.Is(err, syscall.EADDRINUSE) && (bind == "0.0.0.0" || bind == "") {
+			// Port 53 on stock Ubuntu: systemd-resolved owns 127.0.0.53:53, which
+			// blocks the wildcard. Binding the public address alone still works.
+			if ip := localPublicIP(); ip != "" {
+				pc, err2 := net.ListenPacket("udp4", net.JoinHostPort(ip, strconv.Itoa(port)))
+				if err2 == nil {
+					log.Printf("udp :%d busy on 0.0.0.0, bound %s instead", port, ip)
+					l.pc, err = pc, nil
+				}
+			}
+		}
 	} else {
 		l.pc, err = net.ListenPacket("udp4", ":0")
 		if err == nil {
@@ -338,3 +350,24 @@ func (l *tcpLink) Recv(b []byte) (int, net.Addr, error) {
 }
 func (l *tcpLink) Confirm(net.Addr) {}
 func (l *tcpLink) Close()           { l.stop() }
+
+var _, cgnat, _ = net.ParseCIDR("100.64.0.0/10")
+
+// localPublicIP returns the first global unicast IPv4 on this host.
+func localPublicIP() string {
+	addrs, _ := net.InterfaceAddrs()
+	var private string
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP.To4() == nil || !n.IP.IsGlobalUnicast() {
+			continue
+		}
+		if !n.IP.IsPrivate() && !cgnat.Contains(n.IP) {
+			return n.IP.String()
+		}
+		if private == "" {
+			private = n.IP.String() // behind 1:1 NAT the public IP is not on any interface
+		}
+	}
+	return private
+}
