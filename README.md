@@ -80,6 +80,6 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 go build -o mdt ./cmd/mdt
 ```
 
-برای انتشار نسخه‌ی جدید، در گیت‌هاب یک Release با تگ `vX.Y.Z` منتشر کن. GitHub Actions باینری amd64 و arm64 را می‌سازد و به همان Release اضافه می‌کند.
+با هر push روی `main`، GitHub Actions باینری amd64 و arm64 را می‌سازد و با نسخه‌ی `SCRIPT_VER` در Releases منتشر می‌کند.
 
 </div>

@@ -57,4 +57,4 @@ ChaCha20-Poly1305 with HKDF-derived keys. Streams get fresh per-direction keys p
 
 ## Build
 
-`go build -o mdt ./cmd/mdt` — publish a GitHub Release tagged `vX.Y.Z` and GitHub Actions attaches the amd64/arm64 binaries.
+`go build -o mdt ./cmd/mdt` — every push to `main` makes GitHub Actions build amd64/arm64 and publish them as release `v<SCRIPT_VER>`.

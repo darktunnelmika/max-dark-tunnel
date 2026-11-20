@@ -1,14 +1,20 @@
 name: release
 
-# Publish a GitHub Release (e.g. tag v1.0.0) and this attaches the core
-# binaries to it. The installer downloads .../releases/latest/download/mdt-linux-<arch>.
+# Every push to main builds the core and publishes it as the release
+# v<SCRIPT_VER> (the version in max-dark-tunnel.sh), so the installer's
+# .../releases/latest/download/mdt-linux-<arch> always has a binary.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: ["cmd/**", "internal/**", "go.mod", "max-dark-tunnel.sh", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -21,9 +27,12 @@ jobs:
           go-version: "1.24"
 
       - name: Build
+        id: build
         run: |
+          ver="$(grep -m1 '^SCRIPT_VER=' max-dark-tunnel.sh | cut -d'"' -f2)"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
           go mod tidy
-          ver="${GITHUB_REF_NAME#v}"
+          go vet ./...
           mkdir -p dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
@@ -33,8 +42,10 @@ jobs:
           cd dist && sha256sum mdt-linux-* > SHA256SUMS
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.build.outputs.ver }}
+          name: Max Dark Tunnel v${{ steps.build.outputs.ver }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
           files: dist/*
-          tag_name: ${{ github.event.release.tag_name }}
