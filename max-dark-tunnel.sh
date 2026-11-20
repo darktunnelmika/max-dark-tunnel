@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.0.0"
+SCRIPT_VER="1.0.1"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -504,7 +504,8 @@ screen_new_iran() {
 
   proto=""; itype=""; irep=""; icode=""
   if [ "$car" = mdtp ]; then
-    dim "47=GRE  50=ESP  4=IPIP  41=6in4 - or any 1-255 your route lets through"
+    dim "47=GRE (sent with a real GRE header)  50=ESP  - or any 1-255 your route lets through"
+    dim "if one number connects but passes no traffic, try another: routes filter per protocol"
     while :; do ask "IP protocol number" "47"; proto="$ANS"
       [[ "$proto" =~ ^[0-9]+$ ]] && [ "$proto" -ge 1 ] && [ "$proto" -le 255 ] && break; bad "1-255"; done
   fi

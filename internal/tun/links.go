@@ -1,6 +1,7 @@
 package tun
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -33,26 +34,61 @@ var errNoPeer = errors.New("peer not known yet")
 type rawLink struct {
 	pc   net.PacketConn
 	peer *net.IPAddr
+	hdr  []byte // protocol header put in front of every packet, if any
+	mu   sync.Mutex
+	wbuf []byte
 }
 
-func newRaw(bind string, proto int, peer string) (*rawLink, error) {
+// Firewalls on the path parse well-known protocols and drop what does not
+// look like them: on a real Iran<->EU route, protocol 47 carrying bare
+// ciphertext lost almost every packet while protocol 253 lost none. So GRE
+// gets a genuine header: key-present flag, payload type IPv4, and a key
+// derived from the PSK. The key also keeps the kernel's own keyless gre0
+// device from ever treating these packets as its own.
+func rawHeader(proto int, psk string) []byte {
+	if proto != 47 {
+		return nil
+	}
+	return append([]byte{0x20, 0x00, 0x08, 0x00}, crypt.Derive(psk, nil, "gre key", 4)...)
+}
+
+func newRaw(bind string, proto int, peer, psk string) (*rawLink, error) {
 	pc, err := net.ListenPacket("ip4:"+strconv.Itoa(proto), bind)
 	if err != nil {
 		return nil, err
 	}
-	return &rawLink{pc: pc, peer: &net.IPAddr{IP: net.ParseIP(peer)}}, nil
+	return &rawLink{pc: pc, peer: &net.IPAddr{IP: net.ParseIP(peer)}, hdr: rawHeader(proto, psk)}, nil
 }
 
-func (l *rawLink) Send(p []byte) error { _, err := l.pc.WriteTo(p, l.peer); return err }
+func (l *rawLink) Send(p []byte) error {
+	if l.hdr == nil {
+		_, err := l.pc.WriteTo(p, l.peer)
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.wbuf = append(append(l.wbuf[:0], l.hdr...), p...)
+	_, err := l.pc.WriteTo(l.wbuf, l.peer)
+	return err
+}
+
 func (l *rawLink) Recv(b []byte) (int, net.Addr, error) {
 	for {
 		n, from, err := l.pc.ReadFrom(b)
 		if err != nil {
 			return 0, nil, err
 		}
-		if a, ok := from.(*net.IPAddr); ok && a.IP.Equal(l.peer.IP) {
-			return n, from, nil
+		a, ok := from.(*net.IPAddr)
+		if !ok || !a.IP.Equal(l.peer.IP) {
+			continue
 		}
+		if h := len(l.hdr); h > 0 {
+			if n < h || !bytes.Equal(b[:h], l.hdr) {
+				continue // someone else's GRE (a kernel tunnel to the same peer)
+			}
+			n = copy(b, b[h:n])
+		}
+		return n, from, nil
 	}
 }
 func (l *rawLink) Confirm(net.Addr) {}

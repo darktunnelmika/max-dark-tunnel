@@ -44,7 +44,7 @@ func buildLink(ctx context.Context, cfg *config.Config) (Link, error) {
 	}
 	switch cfg.Carrier {
 	case config.CarrierMDTP:
-		return newRaw(cfg.BindIP, cfg.Proto, peer)
+		return newRaw(cfg.BindIP, cfg.Proto, peer, cfg.PSK)
 	case config.CarrierICMP:
 		id := binary.BigEndian.Uint16(crypt.Derive(cfg.PSK, nil, "icmp id", 2))
 		send, recv := cfg.ICMPType, cfg.ICMPRply
