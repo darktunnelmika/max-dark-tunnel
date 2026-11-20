@@ -64,8 +64,12 @@ echo "$RAW" > "$BASE_DIR/update.url"
 [ -n "$MIRROR" ] && echo "${MIRROR%/}" > "$BASE_DIR/core.mirror"
 ok "manager v${ver:-?} installed as: maxdark"
 
-if [ ! -x /usr/local/bin/mdt ]; then
-  "$DEST" --install-core </dev/null || bad "core not installed yet - use [1] Core in the menu"
+# Always refresh the core to the latest release, so re-running this one-liner
+# upgrades an existing install. If the download fails but a core is already
+# here, keep it.
+if ! "$DEST" --install-core </dev/null; then
+  if [ -x /usr/local/bin/mdt ]; then info "kept existing core $(/usr/local/bin/mdt version)"
+  else bad "core not installed yet - use [1] Core in the menu"; fi
 fi
 
 if [ -n "$PAIR" ]; then
