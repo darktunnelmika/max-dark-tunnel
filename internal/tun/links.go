@@ -151,7 +151,23 @@ type udpLink struct {
 	unwrap func(b []byte) ([]byte, bool)
 	mu     sync.Mutex
 	wbuf   []byte
+
+	// DNS only. Filters on the path drop large *queries* (real ones are
+	// tiny) but pass large responses, so the querying side splits each
+	// packet into small queries and the answering side reassembles.
+	frag    bool
+	fragMax int // max payload bytes per message when sending; 0 = no split
+	msgID   uint16
+	fbuf    []byte
+	parts   map[uint16]*partial
 }
+
+type partial struct {
+	got   int
+	chunk [][]byte
+}
+
+const fragHdr = 4 // msg id (2), index (1), total (1)
 
 func newUDP(bind string, port int, peer string, listen bool) (*udpLink, error) {
 	l := &udpLink{listen: listen}
@@ -183,14 +199,72 @@ func (l *udpLink) Send(p []byte) error {
 	if to == nil {
 		return errNoPeer
 	}
-	if l.wrap != nil {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		l.wbuf = l.wrap(l.wbuf[:0], p)
-		p = l.wbuf
+	if l.wrap == nil {
+		_, err := l.pc.WriteTo(p, to)
+		return err
 	}
-	_, err := l.pc.WriteTo(p, to)
-	return err
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.frag {
+		l.wbuf = l.wrap(l.wbuf[:0], p)
+		_, err := l.pc.WriteTo(l.wbuf, to)
+		return err
+	}
+	max := l.fragMax
+	if max <= 0 || max > len(p) {
+		max = len(p)
+	}
+	total := (len(p) + max - 1) / max
+	if total > 255 {
+		return errors.New("packet too large to fragment")
+	}
+	l.msgID++
+	for i := 0; i < total; i++ {
+		end := (i + 1) * max
+		if end > len(p) {
+			end = len(p)
+		}
+		l.fbuf = append(l.fbuf[:0], byte(l.msgID>>8), byte(l.msgID), byte(i), byte(total))
+		l.fbuf = append(l.fbuf, p[i*max:end]...)
+		l.wbuf = l.wrap(l.wbuf[:0], l.fbuf)
+		if _, err := l.pc.WriteTo(l.wbuf, to); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reassemble returns a whole packet once every fragment of it has arrived.
+func (l *udpLink) reassemble(b []byte) ([]byte, bool) {
+	if len(b) < fragHdr || b[3] == 0 || b[2] >= b[3] {
+		return nil, false
+	}
+	id, idx, total := uint16(b[0])<<8|uint16(b[1]), int(b[2]), int(b[3])
+	data := b[fragHdr:]
+	if total == 1 {
+		return data, true
+	}
+	if l.parts == nil || len(l.parts) > 512 {
+		l.parts = map[uint16]*partial{} // lost fragments never complete; start over
+	}
+	pt := l.parts[id]
+	if pt == nil || len(pt.chunk) != total {
+		pt = &partial{chunk: make([][]byte, total)}
+		l.parts[id] = pt
+	}
+	if pt.chunk[idx] == nil {
+		pt.chunk[idx] = append([]byte(nil), data...)
+		pt.got++
+	}
+	if pt.got < total {
+		return nil, false
+	}
+	delete(l.parts, id)
+	var out []byte
+	for _, c := range pt.chunk {
+		out = append(out, c...)
+	}
+	return out, true
 }
 
 func (l *udpLink) Recv(b []byte) (int, net.Addr, error) {
@@ -206,6 +280,9 @@ func (l *udpLink) Recv(b []byte) (int, net.Addr, error) {
 		}
 		if l.unwrap != nil {
 			pl, ok := l.unwrap(b[:n])
+			if ok && l.frag {
+				pl, ok = l.reassemble(pl)
+			}
 			if !ok {
 				continue
 			}

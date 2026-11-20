@@ -19,6 +19,12 @@ import (
 const (
 	pktKeepalive = 0
 	pktData      = 1
+
+	// Bytes of tunnel data per DNS query; 0 sends each packet as one query.
+	// Splitting keeps queries small, but networks that police DNS count
+	// queries rather than bytes (measured on an Iranian DC line: ~12 queries
+	// per burst, any size), so more queries only reach that limit sooner.
+	dnsQueryPayload = 0
 )
 
 func buildLink(ctx context.Context, cfg *config.Config) (Link, error) {
@@ -30,6 +36,10 @@ func buildLink(ctx context.Context, cfg *config.Config) (Link, error) {
 		}
 		l.wrap = dnsWrapper(cfg.DNSDomain, cfg.IsIran())
 		l.unwrap = dnsUnwrapper(cfg.IsIran())
+		l.frag = true
+		if cfg.IsIran() {
+			l.fragMax = dnsQueryPayload // queries stay small; responses go whole
+		}
 		return l, nil
 	}
 	switch cfg.Carrier {

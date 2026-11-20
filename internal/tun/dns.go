@@ -13,13 +13,22 @@ import (
 
 const b32 = "abcdefghijklmnopqrstuvwxyz234567"
 
-func dnsName(dst []byte, domain string) []byte {
-	var r [12]byte
+// sessionLabel is chosen once per process. A fresh random label on every
+// query is the textbook DNS-tunnel signature and gets the flow throttled;
+// one stable name looks like a client repeatedly asking for the same record.
+var sessionLabel = func() []byte {
+	var r [8]byte
 	_, _ = rand.Read(r[:])
-	dst = append(dst, byte(len(r)))
-	for _, x := range r {
-		dst = append(dst, b32[x&31])
+	out := make([]byte, len(r))
+	for i, x := range r {
+		out[i] = b32[x&31]
 	}
+	return out
+}()
+
+func dnsName(dst []byte, domain string) []byte {
+	dst = append(dst, byte(len(sessionLabel)))
+	dst = append(dst, sessionLabel...)
 	for _, lab := range strings.Split(strings.Trim(domain, "."), ".") {
 		if lab == "" || len(lab) > 63 {
 			continue

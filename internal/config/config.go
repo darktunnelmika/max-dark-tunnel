@@ -121,7 +121,9 @@ func (c *Config) Defaults() {
 		if c.DNSDomain == "" {
 			c.DNSDomain = "cdn.example.com"
 		}
-		def(&c.MTU, 1200)
+		// DNS wrapping adds ~60 bytes and the path is often a tunnel already
+		// (GRE/WG uplinks), so keep the inner MTU well under the wire MTU.
+		def(&c.MTU, 1000)
 	case TransportTun:
 		if c.Carrier == "" {
 			c.Carrier = CarrierMDTP
