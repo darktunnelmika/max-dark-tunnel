@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.1.1"
+SCRIPT_VER="1.1.2"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -764,8 +764,14 @@ screen_manage() {
     st="$("$BIN_PATH" status -c "$TUN_DIR/$name.json" 2>/dev/null)"
     kv "traffic" "rx $(sed -n 's/^rx=//p' <<<"$st")  tx $(sed -n 's/^tx=//p' <<<"$st")"
     kv "restart" "every $(restart_timer_of "$name")"
-    local prof; prof="$(cfg_get "$name" profile)"
-    kv "profile" "$prof  ($(cfg_get "$name" mux) conns, $(( $(cfg_get "$name" recv_buf) / 1048576 ))MB buf$([ -n "$(cfg_get "$name" cc)" ] && echo ", $(cfg_get "$name" cc)"))"
+    local prof rb mux cc
+    prof="$(cfg_get "$name" profile)"; mux="$(cfg_get "$name" mux)"
+    rb="$(cfg_get "$name" recv_buf)"; cc="$(cfg_get "$name" cc)"
+    if [ -n "$prof" ]; then
+      kv "profile" "$prof  (${mux:-?} conns, $(( ${rb:-0} / 1048576 ))MB buf$([ -n "$cc" ] && echo ", $cc"))"
+    else
+      kv "profile" "balanced (default - use [8] Tuning to set)"
+    fi
     mid
     item 1 "Status" "live link state"
     item 2 "Live log" "ctrl+c to leave"
