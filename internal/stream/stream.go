@@ -131,7 +131,7 @@ func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Trac
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			tune(c)
+			tune(c, cfg.CC)
 			go func() {
 				s, err := build(c, false)
 				if err != nil {
@@ -153,7 +153,7 @@ func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Trac
 			for ctx.Err() == nil {
 				c, err := net.DialTimeout("tcp", addr, 10*time.Second)
 				if err == nil {
-					tune(c)
+					tune(c, cfg.CC)
 					var s Session
 					s, err = build(c, true)
 					if err == nil {
@@ -176,12 +176,13 @@ func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Trac
 	return nil
 }
 
-func tune(c net.Conn) {
+func tune(c net.Conn, cc string) {
 	if t, ok := c.(*net.TCPConn); ok {
 		_ = t.SetNoDelay(true)
 		_ = t.SetKeepAlive(true)
 		_ = t.SetKeepAlivePeriod(20 * time.Second)
 	}
+	SetCongestion(c, cc)
 }
 
 // ------------------------------------------------------------ stream header -
@@ -233,7 +234,7 @@ func handleStream(c net.Conn, st *status.Tracker) {
 			log.Printf("dial %s: %v", target, err)
 			return
 		}
-		tune(r)
+		tune(r, "")
 		fwd.Pipe(c, r, st)
 	case kindUDP:
 		r, err := net.Dial("udp", targetAddr(target))

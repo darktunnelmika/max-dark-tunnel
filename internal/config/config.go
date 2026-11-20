@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Transports, mirroring the installer menu.
@@ -39,6 +40,14 @@ const (
 	DirDirect  = "direct"  // kharej listens, iran dials
 )
 
+// Speed profiles bundle the throughput knobs. Advanced settings override
+// any one of them individually.
+const (
+	ProfileFast     = "fast"     // most connections and buffers - best link
+	ProfileBalanced = "balanced" // the default
+	ProfileStable   = "stable"   // fewer connections, small buffers - weak link
+)
+
 type Config struct {
 	Name      string `json:"name"`
 	Role      string `json:"role"`
@@ -62,7 +71,15 @@ type Config struct {
 	MTU    int    `json:"mtu,omitempty"`
 
 	DNSDomain string `json:"dns_domain,omitempty"`
-	Mux       int    `json:"mux,omitempty"` // parallel carrier connections (tcp/ssh)
+
+	// Performance tuning. Profile picks sensible values for the rest; any
+	// field set explicitly (via Advanced) keeps its value.
+	Profile   string `json:"profile,omitempty"`    // fast | balanced | stable
+	Mux       int    `json:"mux,omitempty"`        // parallel carrier connections (tcp/ssh)
+	RecvBuf   int    `json:"recv_buf,omitempty"`   // smux receive window, bytes
+	StreamBuf int    `json:"stream_buf,omitempty"` // smux per-stream window, bytes
+	KeepAlive int    `json:"keepalive,omitempty"`  // carrier keepalive, seconds
+	CC        string `json:"cc,omitempty"`         // tcp congestion control: bbr | cubic | reno | ""
 
 	// Iran only: user-facing ports. "443" or "443>8443" or "443>1.2.3.4:80".
 	TCPPorts string `json:"tcp_ports,omitempty"`
@@ -73,6 +90,7 @@ type Config struct {
 }
 
 var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,24}$`)
+var ccRe = regexp.MustCompile(`^[a-z0-9]{0,15}$`)
 
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
@@ -112,10 +130,8 @@ func (c *Config) Defaults() {
 	switch c.Transport {
 	case TransportTCP:
 		def(&c.Port, 443)
-		def(&c.Mux, 4)
 	case TransportSSH:
 		def(&c.Port, 2020)
-		def(&c.Mux, 2)
 	case TransportDNS:
 		def(&c.Port, 53)
 		if c.DNSDomain == "" {
@@ -145,6 +161,10 @@ func (c *Config) Defaults() {
 			c.TunDev = "mdt" + strconv.Itoa(c.Subnet)
 		}
 	}
+	if c.Profile == "" {
+		c.Profile = ProfileBalanced
+	}
+	c.applyProfile()
 	if c.LogFile == "" && c.Name != "" {
 		c.LogFile = "/var/log/max-dark-tunnel/" + c.Name + ".log"
 	}
@@ -158,6 +178,31 @@ func def(p *int, v int) {
 		*p = v
 	}
 }
+
+// applyProfile fills the tuning knobs from the chosen profile, leaving any
+// value already set (by Advanced) untouched.
+func (c *Config) applyProfile() {
+	switch c.Profile {
+	case ProfileFast:
+		def(&c.Mux, 8)
+		def(&c.RecvBuf, 16<<20)
+		def(&c.StreamBuf, 4<<20)
+		def(&c.KeepAlive, 10)
+	case ProfileStable:
+		def(&c.Mux, 2)
+		def(&c.RecvBuf, 4<<20)
+		def(&c.StreamBuf, 1<<20)
+		def(&c.KeepAlive, 15)
+	default: // balanced
+		def(&c.Mux, 4)
+		def(&c.RecvBuf, 8<<20)
+		def(&c.StreamBuf, 2<<20)
+		def(&c.KeepAlive, 10)
+	}
+}
+
+// KeepAliveDur is the carrier keepalive interval.
+func (c *Config) KeepAliveDur() time.Duration { return time.Duration(c.KeepAlive) * time.Second }
 
 func (c *Config) IsTun() bool  { return c.Transport == TransportTun || c.Transport == TransportDNS }
 func (c *Config) IsIran() bool { return c.Role == RoleIran }
@@ -214,6 +259,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Direction != DirReverse && c.Direction != DirDirect {
 		return errors.New("direction must be reverse or direct")
+	}
+	switch c.Profile {
+	case ProfileFast, ProfileBalanced, ProfileStable:
+	default:
+		return fmt.Errorf("unknown profile %q", c.Profile)
+	}
+	if c.Mux < 1 || c.Mux > 64 {
+		return errors.New("mux must be 1-64")
+	}
+	if !ccRe.MatchString(c.CC) {
+		return errors.New("bad congestion control name")
 	}
 	if c.Port < 0 || c.Port > 65535 {
 		return errors.New("bad port")

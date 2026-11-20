@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/darktunnelmika/max-dark-tunnel/internal/crypt"
+	"github.com/darktunnelmika/max-dark-tunnel/internal/stream"
 )
 
 // Link moves already-sealed packets between the two servers.
@@ -349,11 +350,12 @@ type tcpLink struct {
 	cur  net.Conn
 	in   chan []byte
 	stop context.CancelFunc
+	cc   string
 }
 
-func newTCP(ctx context.Context, bind string, port int, peer, psk string, listen bool) (*tcpLink, error) {
+func newTCP(ctx context.Context, bind string, port int, peer, psk, cc string, listen bool) (*tcpLink, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	l := &tcpLink{in: make(chan []byte, 1024), stop: cancel}
+	l := &tcpLink{in: make(chan []byte, 1024), stop: cancel, cc: cc}
 	if listen {
 		ln, err := net.Listen("tcp4", net.JoinHostPort(bind, strconv.Itoa(port)))
 		if err != nil {
@@ -411,6 +413,7 @@ func (l *tcpLink) attach(c net.Conn) {
 	if t, ok := c.(interface{ SetNoDelay(bool) error }); ok {
 		_ = t.SetNoDelay(true)
 	}
+	stream.SetCongestion(c, l.cc)
 	l.mu.Lock()
 	if l.cur != nil {
 		l.cur.Close()

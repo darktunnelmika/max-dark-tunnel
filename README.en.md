@@ -42,6 +42,17 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 - **DNS mode:** some networks police DNS-shaped traffic. On one Iranian datacenter line the iran-to-kharej direction was cut after about 12 queries in a burst, so use DNS only when the other modes are blocked, and try a port other than 53 if it does not connect.
 - User ports: `443` → kharej 443; `2083>8443` → iran 2083 lands on kharej 8443.
 
+## Speed profile and tuning
+
+When you create a tunnel on iran you pick a **speed profile**:
+
+- **Balanced:** the default, fine for most links.
+- **Fast:** more parallel connections and bigger buffers, for a good link (more RAM).
+- **Stable:** fewer connections, small buffers, for a weak or lossy link.
+- **Advanced:** set each knob yourself — parallel connections, buffer sizes, keepalive, congestion control (bbr/cubic). Every question has a default, so Enter-through works.
+
+The profile travels in the pair code, so both ends match; change it later from `[4] Manage` -> `[8] Tuning`. It mainly affects TCP Forward and SSH (parallel connections + buffers).
+
 ## Checking
 
 - Menu → Manage → Status: `running · connected`.

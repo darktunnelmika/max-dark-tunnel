@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.0.2"
+SCRIPT_VER="1.1.0"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -70,6 +70,7 @@ blank() { row ""; }
 item()  { row "$(printf '%s%s%s  %s%-22s%s %s%s%s' "$Y" "[$1]" "$N" "$W" "$2" "$N" "$D" "${3:-}" "$N")"; }
 kv()    { row "$(printf '%s%-13s%s %s' "$D" "$1" "$N" "$2")"; }
 sect()  { row "$(printf '%s%s%s' "$M$BD" "$1" "$N")"; }
+sect_line() { printf '  %s%s%s\n' "$M$BD" "$1" "$N"; }
 badge() { printf '%s %s %s' "$2$BD" "$1" "$N"; }
 
 ok()   { printf '  %s+%s %s\n' "$G" "$N" "$*"; }
@@ -441,6 +442,72 @@ show_pair_code() {
   echo
 }
 
+# pick_profile: sets PROF and, for Advanced, PMUX/PRECV/PSTREAM/PKA/PCC.
+# Profiles mainly affect TCP Forward and SSH (parallel connections + buffers);
+# for tun/dns they still set keepalive and the congestion-control choice.
+pick_profile() {
+  PROF=balanced; PMUX=""; PRECV=""; PSTREAM=""; PKA=""; PCC=""
+  echo; top; sect "SPEED PROFILE"
+  item 1 "Balanced" "good default"
+  item 2 "Fast" "more connections + buffers, best link"
+  item 3 "Stable" "fewer connections, weak / lossy link"
+  item 4 "Advanced" "set each value yourself"
+  bot
+  ask "profile" "1"
+  case "$ANS" in
+    2) PROF=fast ;;
+    3) PROF=stable ;;
+    4) PROF=balanced; advanced_tuning ;;
+    *) PROF=balanced ;;
+  esac
+}
+
+# advanced_tuning: every question has a sensible default, so Enter-through is
+# fine. Empty answers fall back to the chosen profile inside the core.
+advanced_tuning() {
+  echo; sect_line "ADVANCED - press Enter to keep a default"
+  echo
+  dim "base profile the blanks fall back to"
+  ask "  base  1) balanced  2) fast  3) stable" "1"
+  case "$ANS" in 2) PROF=fast ;; 3) PROF=stable ;; *) PROF=balanced ;; esac
+
+  while :; do ask "  parallel connections (1-64, blank=profile)" ""
+    [ -z "$ANS" ] && { PMUX=""; break; }
+    [[ "$ANS" =~ ^[0-9]+$ ]] && [ "$ANS" -ge 1 ] && [ "$ANS" -le 64 ] && { PMUX="$ANS"; break; }
+    bad "1-64"; done
+
+  while :; do ask "  receive buffer MB (blank=profile)" ""
+    [ -z "$ANS" ] && { PRECV=""; break; }
+    [[ "$ANS" =~ ^[0-9]+$ ]] && [ "$ANS" -ge 1 ] && [ "$ANS" -le 256 ] && { PRECV="$ANS"; break; }
+    bad "1-256"; done
+
+  while :; do ask "  per-stream buffer MB (blank=profile)" ""
+    [ -z "$ANS" ] && { PSTREAM=""; break; }
+    [[ "$ANS" =~ ^[0-9]+$ ]] && [ "$ANS" -ge 1 ] && [ "$ANS" -le 64 ] && { PSTREAM="$ANS"; break; }
+    bad "1-64"; done
+
+  while :; do ask "  keepalive seconds (blank=profile)" ""
+    [ -z "$ANS" ] && { PKA=""; break; }
+    [[ "$ANS" =~ ^[0-9]+$ ]] && [ "$ANS" -ge 2 ] && [ "$ANS" -le 120 ] && { PKA="$ANS"; break; }
+    bad "2-120"; done
+
+  dim "congestion control: bbr is best on long links; blank leaves it to the OS"
+  while :; do ask "  congestion control (bbr / cubic / blank)" ""
+    [ -z "$ANS" ] && { PCC=""; break; }
+    [[ "$ANS" =~ ^[a-z0-9]{1,15}$ ]] && { PCC="$ANS"; break; }
+    bad "a name like bbr or cubic"; done
+}
+
+# profile_args: echoes the mdt new flags for the current PROF/Pxxx selection.
+profile_args() {
+  printf -- '-profile %s' "$PROF"
+  [ -n "$PMUX" ]    && printf -- ' -mux %s' "$PMUX"
+  [ -n "$PRECV" ]   && printf -- ' -recv-mb %s' "$PRECV"
+  [ -n "$PSTREAM" ] && printf -- ' -stream-mb %s' "$PSTREAM"
+  [ -n "$PKA" ]     && printf -- ' -keepalive %s' "$PKA"
+  [ -n "$PCC" ]     && printf -- ' -cc %s' "$PCC"
+}
+
 # ========================================================= NEW: IRAN =======
 screen_new_iran() {
   header "NEW TUNNEL - IRAN"
@@ -573,7 +640,10 @@ screen_new_iran() {
     mtu=1380; [ "$tr" = dns ] && mtu=1200
   fi
 
+  pick_profile
+
   args=(-name "$name" -role iran -transport "$tr" -iran-ip "$iip" -tcp-ports "$tcpp")
+  read -r -a _pargs <<<"$(profile_args)"; args+=("${_pargs[@]}")
   [ -n "$car" ]   && args+=(-carrier "$car")
   [ -n "$dir" ]   && args+=(-direction "$dir")
   [ -n "$port" ]  && args+=(-port "$port")
@@ -694,6 +764,8 @@ screen_manage() {
     st="$("$BIN_PATH" status -c "$TUN_DIR/$name.json" 2>/dev/null)"
     kv "traffic" "rx $(sed -n 's/^rx=//p' <<<"$st")  tx $(sed -n 's/^tx=//p' <<<"$st")"
     kv "restart" "every $(restart_timer_of "$name")"
+    local prof; prof="$(cfg_get "$name" profile)"
+    kv "profile" "$prof  ($(cfg_get "$name" mux) conns, $(( $(cfg_get "$name" recv_buf) / 1048576 ))MB buf$([ -n "$(cfg_get "$name" cc)" ] && echo ", $(cfg_get "$name" cc)"))"
     mid
     item 1 "Status" "live link state"
     item 2 "Live log" "ctrl+c to leave"
@@ -702,6 +774,7 @@ screen_manage() {
     item 5 "Edit user ports" "iran only"
     item 6 "Scheduled restart" ""
     item 7 "Ping peer" "tun / dns only"
+    item 8 "Tuning" "change the speed profile"
     [ "$role" = iran ] && item p "Pair code" "for the kharej side"
     item d "Delete" ""
     item 0 "Back" ""
@@ -722,6 +795,7 @@ screen_manage() {
            ping -c 4 -W 2 "$peer"
          else info "tcp / ssh tunnels have no inner address - check status instead"; fi
          pause ;;
+      8) edit_tuning "$name" "$role"; pause ;;
       p|P) [ "$role" = iran ] && show_pair_code "$name"; pause ;;
       d|D) if yesno "delete tunnel $name?" n; then
              stop_tunnel "$name"; set_restart_timer "$name" off
@@ -750,6 +824,47 @@ edit_ports() {
   for p in ${udpp//,/ }; do open_fw udp "${p%%>*}"; done
   systemctl restart "mdt@$name"
   ok "ports updated - the kharej side does not need re-pairing"
+}
+
+# edit_tuning re-runs the profile picker and writes the knobs into the json.
+# The dialing side is the one whose connection count and buffers matter, so a
+# change on the listening side only takes effect once the other end re-pairs.
+edit_tuning() {
+  local name="$1" role="$2" f="$TUN_DIR/$1.json" dir
+  dir="$(cfg_get "$name" direction)"
+  pick_profile
+  local recv stream mux ka cc
+  case "$PROF" in
+    fast)    mux=8; recv=16; stream=4; ka=10 ;;
+    stable)  mux=2; recv=4;  stream=1; ka=15 ;;
+    *)       mux=4; recv=8;  stream=2; ka=10 ;;
+  esac
+  [ -n "$PMUX" ]    && mux="$PMUX"
+  [ -n "$PRECV" ]   && recv="$PRECV"
+  [ -n "$PSTREAM" ] && stream="$PSTREAM"
+  [ -n "$PKA" ]     && ka="$PKA"
+  cc="${PCC:-$(cfg_get "$name" cc)}"; [ -n "$PCC" ] && cc="$PCC"
+  # Rebuild the tuning keys with the core so every derived value stays correct.
+  local tmp; tmp="$(mktemp)"
+  local a=(-name "$name" -role "$role" -transport "$(cfg_get "$name" transport)" \
+           -iran-ip "$(cfg_get "$name" iran_ip)" -psk "$(cfg_get "$name" psk)" \
+           -profile "$PROF" -mux "$mux" -recv-mb "$recv" -stream-mb "$stream" -keepalive "$ka")
+  [ -n "$cc" ] && a+=(-cc "$cc")
+  for k in carrier direction port kharej_ip proto icmp_type icmp_reply icmp_code subnet mtu dns_domain tcp_ports udp_ports; do
+    local v; v="$(cfg_get "$name" "$k")"
+    [ -n "$v" ] && a+=("-${k//_/-}" "$v")
+  done
+  if ! "$BIN_PATH" new "${a[@]}" -o "$tmp" 2>/tmp/mdt_tune_err; then
+    bad "could not apply: $(cat /tmp/mdt_tune_err)"; rm -f "$tmp"; return
+  fi
+  install -m 600 "$tmp" "$f"; rm -f "$tmp"
+  [ "$role" = iran ] && "$BIN_PATH" pair -c "$f" > "$TUN_DIR/$name.pair"
+  systemctl restart "mdt@$name"
+  ok "profile set to $PROF ($mux connections)"
+  if { [ "$role" = iran ] && [ "$dir" = reverse ]; } || { [ "$role" = kharej ] && [ "$dir" = direct ]; }; then
+    warn "this is the listening side - re-pair the other end for it to take full effect"
+    [ "$role" = iran ] && show_pair_code "$name"
+  fi
 }
 
 # ============================================================ DASHBOARD ====

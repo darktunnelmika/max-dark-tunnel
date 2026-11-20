@@ -56,7 +56,7 @@ func buildLink(ctx context.Context, cfg *config.Config) (Link, error) {
 	case config.CarrierUDP:
 		return newUDP(cfg.BindIP, cfg.Port, peer, cfg.Listens())
 	case config.CarrierTCP:
-		return newTCP(ctx, cfg.BindIP, cfg.Port, peer, cfg.PSK, cfg.Listens())
+		return newTCP(ctx, cfg.BindIP, cfg.Port, peer, cfg.PSK, cfg.CC, cfg.Listens())
 	}
 	return nil, fmt.Errorf("unknown carrier %q", cfg.Carrier)
 }

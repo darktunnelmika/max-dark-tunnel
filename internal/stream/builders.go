@@ -12,6 +12,7 @@ import (
 	"github.com/xtaci/smux"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/darktunnelmika/max-dark-tunnel/internal/config"
 	"github.com/darktunnelmika/max-dark-tunnel/internal/crypt"
 )
 
@@ -25,25 +26,31 @@ func (m smuxSess) Close() error              { return m.s.Close() }
 func (m smuxSess) IsClosed() bool            { return m.s.IsClosed() }
 
 // Smux: encrypted carrier + stream multiplexing. Iran is the smux client
-// (it opens streams) whichever side dialed.
-func Smux(psk string, iran bool) Builder {
+// (it opens streams) whichever side dialed. Buffers and keepalive come from
+// the tuning profile.
+func Smux(cf *config.Config) Builder {
+	iran := cf.IsIran()
+	ka := cf.KeepAliveDur()
+	if ka <= 0 {
+		ka = 10 * time.Second
+	}
 	return func(c net.Conn, dialer bool) (Session, error) {
 		var sc *crypt.Conn
 		var err error
 		if dialer {
-			sc, err = crypt.Client(c, psk)
+			sc, err = crypt.Client(c, cf.PSK)
 		} else {
-			sc, err = crypt.Server(c, psk)
+			sc, err = crypt.Server(c, cf.PSK)
 		}
 		if err != nil {
 			return nil, err
 		}
 		cfg := smux.DefaultConfig()
 		cfg.Version = 2
-		cfg.KeepAliveInterval = 10 * time.Second
-		cfg.KeepAliveTimeout = 30 * time.Second
-		cfg.MaxReceiveBuffer = 8 << 20
-		cfg.MaxStreamBuffer = 2 << 20
+		cfg.KeepAliveInterval = ka
+		cfg.KeepAliveTimeout = 3 * ka
+		cfg.MaxReceiveBuffer = cf.RecvBuf
+		cfg.MaxStreamBuffer = cf.StreamBuf
 		cfg.MaxFrameSize = 16 * 1024
 		var s *smux.Session
 		if iran {

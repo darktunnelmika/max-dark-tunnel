@@ -95,7 +95,7 @@ func cmdRun(args []string) error {
 
 	switch cfg.Transport {
 	case config.TransportTCP:
-		err = stream.Run(ctx, cfg, stream.Smux(cfg.PSK, cfg.IsIran()), st)
+		err = stream.Run(ctx, cfg, stream.Smux(cfg), st)
 	case config.TransportSSH:
 		err = stream.Run(ctx, cfg, stream.SSH(cfg.PSK), st)
 	case config.TransportTun, config.TransportDNS:
@@ -129,6 +129,12 @@ func cmdNew(args []string) error {
 	fs.IntVar(&c.MTU, "mtu", 0, "tun mtu")
 	fs.StringVar(&c.DNSDomain, "dns-domain", "", "dns: query domain")
 	fs.IntVar(&c.Mux, "mux", 0, "parallel carrier connections")
+	fs.StringVar(&c.Profile, "profile", "", "fast | balanced | stable")
+	var recvMB, streamMB int
+	fs.IntVar(&recvMB, "recv-mb", 0, "receive buffer, MB (advanced)")
+	fs.IntVar(&streamMB, "stream-mb", 0, "per-stream buffer, MB (advanced)")
+	fs.IntVar(&c.KeepAlive, "keepalive", 0, "carrier keepalive, seconds (advanced)")
+	fs.StringVar(&c.CC, "cc", "", "tcp congestion control: bbr | cubic (advanced)")
 	fs.StringVar(&c.TCPPorts, "tcp-ports", "", "iran: 443,8080>80,...")
 	fs.StringVar(&c.UDPPorts, "udp-ports", "", "iran: udp ports")
 	_ = fs.Parse(args)
@@ -137,6 +143,12 @@ func cmdNew(args []string) error {
 	}
 	if c.PSK == "" {
 		c.PSK = config.NewPSK()
+	}
+	if recvMB > 0 {
+		c.RecvBuf = recvMB << 20
+	}
+	if streamMB > 0 {
+		c.StreamBuf = streamMB << 20
 	}
 	c.Defaults()
 	if err := c.Validate(); err != nil {

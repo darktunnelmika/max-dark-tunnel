@@ -31,6 +31,11 @@ type code struct {
 	M  int    `json:"m,omitempty"`
 	Dd string `json:"dd,omitempty"`
 	Mx int    `json:"mx,omitempty"`
+	Pf string `json:"pf,omitempty"`
+	Rb int    `json:"rb,omitempty"`
+	Sb int    `json:"sb,omitempty"`
+	Ka int    `json:"ka,omitempty"`
+	Cc string `json:"cc,omitempty"`
 }
 
 // Encode is run on iran.
@@ -40,7 +45,8 @@ func Encode(c *config.Config) (string, error) {
 	}
 	b, _ := json.Marshal(code{V: 1, N: c.Name, T: c.Transport, C: c.Carrier, D: c.Direction,
 		P: c.Port, I: c.IranIP, K: c.KharejIP, S: c.PSK, Pr: c.Proto, It: c.ICMPType,
-		Ic: c.ICMPCode, Ir: c.ICMPRply, Sn: c.Subnet, M: c.MTU, Dd: c.DNSDomain, Mx: c.Mux})
+		Ic: c.ICMPCode, Ir: c.ICMPRply, Sn: c.Subnet, M: c.MTU, Dd: c.DNSDomain, Mx: c.Mux,
+		Pf: c.Profile, Rb: c.RecvBuf, Sb: c.StreamBuf, Ka: c.KeepAlive, Cc: c.CC})
 	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
@@ -63,7 +69,8 @@ func Decode(s, name string) (*config.Config, error) {
 	c := &config.Config{Name: name, Role: config.RoleKharej, Transport: p.T, Carrier: p.C,
 		Direction: p.D, Port: p.P, IranIP: p.I, KharejIP: p.K, PSK: p.S, Proto: p.Pr,
 		ICMPType: p.It, ICMPCode: p.Ic, ICMPRply: p.Ir, Subnet: p.Sn, MTU: p.M,
-		DNSDomain: p.Dd, Mux: p.Mx}
+		DNSDomain: p.Dd, Mux: p.Mx,
+		Profile: p.Pf, RecvBuf: p.Rb, StreamBuf: p.Sb, KeepAlive: p.Ka, CC: p.Cc}
 	c.Defaults()
 	if err := c.Validate(); err != nil {
 		return nil, err
