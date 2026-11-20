@@ -38,6 +38,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 
 - **reverse**: IRAN listens, KHAREJ dials. **direct**: KHAREJ listens, IRAN dials.
 - Tun/DNS addresses: `10.20.N.1` (iran) / `10.20.N.2` (kharej), N assigned per tunnel.
+- **Route filtering:** every route passes some protocols and drops others. On one real Iran-to-EU route protocol 47 (GRE) was blocked outright while 50 and 253 ran with no loss; the same 47 was fine between two non-Iran servers. If a tunnel does not connect, or Status shows a high `loss`, try another protocol or mode.
 - **DNS mode:** some networks police DNS-shaped traffic. On one Iranian datacenter line the iran-to-kharej direction was cut after about 12 queries in a burst, so use DNS only when the other modes are blocked, and try a port other than 53 if it does not connect.
 - User ports: `443` → kharej 443; `2083>8443` → iran 2083 lands on kharej 8443.
 
@@ -45,7 +46,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 
 - Menu → Manage → Status: `running · connected`.
 - Log: `tail -f /var/log/max-dark-tunnel/<name>.log` — `tunnel is live` / `TUNNEL IS DOWN`.
-- Tun/DNS: `ping 10.20.N.2` from iran. All tunnels: `maxdark --status`.
+- Tun/DNS: `ping 10.20.N.2` from iran; Status also shows packet `loss` for these modes. All tunnels: `maxdark --status`.
 
 ## No GitHub access from Iran?
 
