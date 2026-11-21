@@ -122,6 +122,8 @@ func cmdNew(args []string) error {
 	fs.StringVar(&c.BindIP, "bind", "", "local bind address")
 	fs.StringVar(&c.PSK, "psk", "", "pre-shared key (generated if empty)")
 	fs.IntVar(&c.Proto, "proto", 0, "mdtp: ip protocol number")
+	fs.StringVar(&c.SpoofSrc, "spoof-src", "", "mdtp: forge this source IP")
+	fs.StringVar(&c.SpoofDst, "spoof-dst", "", "mdtp: expect this forged source from peer")
 	fs.IntVar(&c.ICMPType, "icmp-type", 0, "icmp: type iran sends")
 	fs.IntVar(&c.ICMPRply, "icmp-reply", 0, "icmp: type kharej sends")
 	fs.IntVar(&c.ICMPCode, "icmp-code", 0, "icmp: code")

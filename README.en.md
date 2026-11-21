@@ -53,6 +53,12 @@ When you create a tunnel on iran you pick a **speed profile**:
 
 The profile travels in the pair code, so both ends match; change it later from `[4] Manage` -> `[8] Tuning`. It mainly affects TCP Forward and SSH (parallel connections + buffers).
 
+## Source-IP spoof (MDTprotocol only)
+
+If a route meters traffic by sender IP, you can forge the source address. When creating an MDTprotocol tunnel the wizard asks for a fake source IP for each server; they are cross-paired (each side's SRC = the other's DST) and carried in the pair code. Packets still go to the peer's real IP — only the sender field changes.
+
+**Warning:** most datacenters drop spoofed-source packets and the tunnel won't come up. Build without spoof first, enable it only if needed. When spoof is on the script sets reverse-path filtering to loose mode so the packets aren't dropped locally.
+
 ## Checking
 
 - Menu → Manage → Status: `running · connected`.

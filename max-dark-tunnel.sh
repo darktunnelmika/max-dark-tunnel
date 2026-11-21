@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.1.3"
+SCRIPT_VER="1.2.0"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -411,6 +411,18 @@ restart_all() {
   done
 }
 
+# Spoofed source IPs are dropped by reverse-path filtering; loose mode (2)
+# keeps anti-spoof protection for normal traffic but lets these through.
+loosen_rp_filter() {
+  sysctl -qw net.ipv4.conf.all.rp_filter=2 2>/dev/null
+  sysctl -qw net.ipv4.conf.default.rp_filter=2 2>/dev/null
+  local f
+  for f in /proc/sys/net/ipv4/conf/*/rp_filter; do [ "$(cat "$f")" = 1 ] && echo 2 > "$f" 2>/dev/null; done
+  mkdir -p /etc/sysctl.d
+  printf 'net.ipv4.conf.all.rp_filter=2\nnet.ipv4.conf.default.rp_filter=2\n' > /etc/sysctl.d/97-mdt-spoof.conf
+  dim "reverse-path filter set to loose mode (needed for spoofing)"
+}
+
 optimize_net() {
   cat > /etc/sysctl.d/99-max-dark-tunnel.conf <<'EOF'
 net.core.default_qdisc=fq
@@ -571,12 +583,19 @@ screen_new_iran() {
     done
   fi
 
-  proto=""; itype=""; irep=""; icode=""
+  proto=""; itype=""; irep=""; icode=""; sspsrc=""; spdst=""
   if [ "$car" = mdtp ]; then
     dim "47=GRE (sent with a real GRE header)  50=ESP  - or any 1-255 your route lets through"
     dim "if one number connects but passes no traffic, try another: routes filter per protocol"
     while :; do ask "IP protocol number" "47"; proto="$ANS"
       [[ "$proto" =~ ^[0-9]+$ ]] && [ "$proto" -ge 1 ] && [ "$proto" -le 255 ] && break; bad "1-255"; done
+    echo
+    dim "source-IP spoof: stamp a fake sender IP on packets, for routes that meter by IP."
+    dim "MOST datacenters drop spoofed packets - build without it first, add it only if needed."
+    if yesno "use source-IP spoof?" n; then
+      while :; do ask "  fake source IP for THIS (iran) server" "5.5.5.5"; valid_ip4 "$ANS" && { sspsrc="$ANS"; break; }; bad "invalid IPv4"; done
+      while :; do ask "  fake source IP the KHAREJ server will use" "7.7.7.7"; valid_ip4 "$ANS" && { spdst="$ANS"; break; }; bad "invalid IPv4"; done
+    fi
   fi
   if [ "$car" = icmp ]; then
     itype=8; irep=0; icode=0
@@ -650,6 +669,7 @@ screen_new_iran() {
   [ -n "$kip" ]   && args+=(-kharej-ip "$kip")
   [ -n "$udpp" ]  && args+=(-udp-ports "$udpp")
   [ -n "$proto" ] && args+=(-proto "$proto")
+  [ -n "$sspsrc" ] && args+=(-spoof-src "$sspsrc" -spoof-dst "$spdst")
   [ -n "$itype" ] && args+=(-icmp-type "$itype" -icmp-reply "$irep" -icmp-code "$icode")
   [ -n "$sub" ]   && args+=(-subnet "$sub" -mtu "$mtu")
   [ -n "$dd" ]    && args+=(-dns-domain "$dd")
@@ -669,6 +689,7 @@ screen_new_iran() {
   for p in ${tcpp//,/ }; do open_fw tcp "${p%%>*}"; done
   for p in ${udpp//,/ }; do open_fw udp "${p%%>*}"; done
 
+  [ -n "$sspsrc" ] && loosen_rp_filter
   start_tunnel "$name"
   sleep 1
   if [ "$(svc_state "$name")" = active ]; then ok "tunnel $name is running - waiting for KHAREJ"
@@ -694,6 +715,7 @@ join_code() {  # join_code CODE [quiet]
   local tr car dir port
   tr="$(cfg_get "$name" transport)"; car="$(cfg_get "$name" carrier)"
   dir="$(cfg_get "$name" direction)"; port="$(cfg_get "$name" port)"
+  [ -n "$(cfg_get "$name" spoof_src)" ] && loosen_rp_filter
   if [ "$tr" = dns ]; then open_fw udp "$port"
   elif [ "$dir" = direct ] && [ -n "$port" ]; then
     [ "$car" = udp ] && open_fw udp "$port" || open_fw tcp "$port"
@@ -756,6 +778,7 @@ screen_manage() {
     kv "port" "$(cfg_get "$name" port)"
     kv "iran" "$(cfg_get "$name" iran_ip)"
     kv "kharej" "$(cfg_get "$name" kharej_ip)"
+    [ -n "$(cfg_get "$name" spoof_src)" ] && kv "spoof" "src $(cfg_get "$name" spoof_src) <- expect $(cfg_get "$name" spoof_dst)"
     [ "$role" = iran ] && kv "tcp ports" "$(cfg_get "$name" tcp_ports)"
     [ "$role" = iran ] && [ -n "$(cfg_get "$name" udp_ports)" ] && kv "udp ports" "$(cfg_get "$name" udp_ports)"
     if [ "$tr" = tun ] || [ "$tr" = dns ]; then

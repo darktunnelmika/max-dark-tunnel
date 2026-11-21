@@ -61,10 +61,12 @@ type Config struct {
 	BindIP   string `json:"bind_ip,omitempty"`   // local bind address, default 0.0.0.0
 	PSK      string `json:"psk"`
 
-	Proto    int `json:"proto,omitempty"`     // mdtp: IP protocol number
-	ICMPType int `json:"icmp_type,omitempty"` // icmp: type sent by iran (kharej sends ICMPReply)
-	ICMPCode int `json:"icmp_code,omitempty"`
-	ICMPRply int `json:"icmp_reply,omitempty"` // icmp: type sent by kharej
+	Proto    int    `json:"proto,omitempty"`     // mdtp: IP protocol number
+	SpoofSrc string `json:"spoof_src,omitempty"` // mdtp: forge this source IP on our packets
+	SpoofDst string `json:"spoof_dst,omitempty"` // mdtp: accept this forged source from the peer
+	ICMPType int    `json:"icmp_type,omitempty"` // icmp: type sent by iran (kharej sends ICMPReply)
+	ICMPCode int    `json:"icmp_code,omitempty"`
+	ICMPRply int    `json:"icmp_reply,omitempty"` // icmp: type sent by kharej
 
 	Subnet int    `json:"subnet,omitempty"` // tun: 10.20.<subnet>.1/2
 	TunDev string `json:"tun_dev,omitempty"`
@@ -276,6 +278,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Proto < 0 || c.Proto > 255 {
 		return errors.New("proto must be 0-255")
+	}
+	if c.SpoofSrc != "" || c.SpoofDst != "" {
+		if c.Transport != TransportTun || c.Carrier != CarrierMDTP {
+			return errors.New("source-IP spoof is only for the MDTprotocol carrier")
+		}
+		if net.ParseIP(c.SpoofSrc).To4() == nil || net.ParseIP(c.SpoofDst).To4() == nil {
+			return errors.New("spoof src and dst must both be IPv4 addresses")
+		}
 	}
 	if c.Subnet < 0 || c.Subnet > 255 {
 		return errors.New("subnet must be 0-255")
