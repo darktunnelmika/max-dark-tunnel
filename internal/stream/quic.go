@@ -3,8 +3,10 @@ package stream
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"golang.org/x/crypto/chacha20"
 
 	"github.com/darktunnelmika/max-dark-tunnel/internal/config"
 	"github.com/darktunnelmika/max-dark-tunnel/internal/crypt"
@@ -31,13 +34,44 @@ func QUIC() Carrier { return quicCarrier{} }
 
 type quicCarrier struct{}
 
+func obfsTag(cfg *config.Config) string {
+	if cfg.PlainQUIC {
+		return ""
+	}
+	return ", obfuscated"
+}
+
+// listenPacket opens the UDP socket quic-go runs on. Unless disabled, it wraps
+// it in a packet obfuscator so the QUIC header is scrambled and the flow looks
+// like random UDP - some DPI (Iran's, measured) drops recognisable QUIC
+// packets while passing opaque UDP.
+func listenPacket(addr string, cfg *config.Config) (net.PacketConn, error) {
+	ua, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	uc, err := net.ListenUDP("udp", ua)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.PlainQUIC {
+		return uc, nil
+	}
+	return newObfsConn(uc, crypt.Derive(cfg.PSK, nil, "quic obfs key", 32)), nil
+}
+
 func (quicCarrier) Listen(ctx context.Context, cfg *config.Config, serve func(Session)) error {
 	addr := net.JoinHostPort(cfg.BindIP, strconv.Itoa(cfg.Port))
-	ln, err := quic.ListenAddr(addr, serverTLS(cfg.PSK), quicConf(cfg))
+	pc, err := listenPacket(addr, cfg)
 	if err != nil {
 		return err
 	}
-	log.Printf("carrier listening on %s (quic)", addr)
+	ln, err := quic.Listen(pc, serverTLS(cfg.PSK), quicConf(cfg))
+	if err != nil {
+		pc.Close()
+		return err
+	}
+	log.Printf("carrier listening on %s (quic%s)", addr, obfsTag(cfg))
 	go func() { <-ctx.Done(); ln.Close() }()
 	for {
 		conn, err := ln.Accept(ctx)
@@ -54,20 +88,29 @@ func (quicCarrier) Listen(ctx context.Context, cfg *config.Config, serve func(Se
 }
 
 func (quicCarrier) Dial(ctx context.Context, cfg *config.Config, serve func(Session)) error {
-	addr := net.JoinHostPort(cfg.PeerIP(), strconv.Itoa(cfg.Port))
-	log.Printf("carrier dialing %s (quic)", addr)
+	raddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(cfg.PeerIP(), strconv.Itoa(cfg.Port)))
+	if err != nil {
+		return err
+	}
+	log.Printf("carrier dialing %s (quic%s)", raddr, obfsTag(cfg))
 	backoff := time.Second
 	for ctx.Err() == nil {
+		pc, perr := listenPacket(":0", cfg)
+		if perr != nil {
+			return perr
+		}
 		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		conn, err := quic.DialAddr(dctx, addr, clientTLS(cfg.PSK), quicConf(cfg))
+		conn, err := quic.Dial(dctx, pc, raddr, clientTLS(cfg.PSK), quicConf(cfg))
 		cancel()
 		if err == nil {
 			backoff = time.Second
 			serve(&quicSess{conn: conn})
 			log.Printf("quic session closed")
+			pc.Close()
 			continue
 		}
-		log.Printf("quic dial %s: %v (retry in %s)", addr, err, backoff)
+		pc.Close()
+		log.Printf("quic dial %s: %v (retry in %s)", raddr, err, backoff)
 		time.Sleep(backoff)
 		if backoff < 15*time.Second {
 			backoff *= 2
@@ -226,5 +269,62 @@ func clientTLS(psk string) *tls.Config {
 		NextProtos:            []string{pskALPN(psk)},
 		ServerName:            "www.bing.com",
 		MinVersion:            tls.VersionTLS13,
+	}
+}
+
+// ------------------------------------------------------- obfuscation --------
+
+// obfsConn scrambles every datagram with a per-packet keystream so the QUIC
+// header never appears on the wire. This is camouflage, not security (QUIC's
+// own TLS provides that): the goal is only to defeat QUIC fingerprinting.
+// Wire format: 8-byte random salt || (payload XOR chacha20(sha256(key||salt))).
+type obfsConn struct {
+	net.PacketConn
+	key []byte
+}
+
+const obfsSaltLen = 8
+
+func newObfsConn(pc net.PacketConn, key []byte) *obfsConn {
+	return &obfsConn{PacketConn: pc, key: key}
+}
+
+func (o *obfsConn) stream(salt []byte) cipher.Stream {
+	h := sha256.New()
+	h.Write(o.key)
+	h.Write(salt)
+	sum := h.Sum(nil)
+	c, _ := chacha20.NewUnauthenticatedCipher(sum, make([]byte, chacha20.NonceSize))
+	return c
+}
+
+func (o *obfsConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	buf := make([]byte, obfsSaltLen+len(p))
+	if _, err := rand.Read(buf[:obfsSaltLen]); err != nil {
+		return 0, err
+	}
+	o.stream(buf[:obfsSaltLen]).XORKeyStream(buf[obfsSaltLen:], p)
+	if _, err := o.PacketConn.WriteTo(buf, addr); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (o *obfsConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	buf := make([]byte, len(b)+obfsSaltLen+64)
+	for {
+		n, addr, err := o.PacketConn.ReadFrom(buf)
+		if err != nil {
+			return 0, addr, err
+		}
+		if n < obfsSaltLen {
+			continue // too short to be ours
+		}
+		pt := n - obfsSaltLen
+		if pt > len(b) {
+			pt = len(b)
+		}
+		o.stream(buf[:obfsSaltLen]).XORKeyStream(b[:pt], buf[obfsSaltLen:obfsSaltLen+pt])
+		return pt, addr, nil
 	}
 }

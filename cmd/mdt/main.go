@@ -132,6 +132,7 @@ func cmdNew(args []string) error {
 	fs.IntVar(&c.Subnet, "subnet", 0, "tun: 10.20.<n>.0/30")
 	fs.IntVar(&c.MTU, "mtu", 0, "tun mtu")
 	fs.StringVar(&c.DNSDomain, "dns-domain", "", "dns: query domain")
+	fs.BoolVar(&c.PlainQUIC, "plain-quic", false, "quic: turn OFF packet obfuscation")
 	fs.IntVar(&c.Mux, "mux", 0, "parallel carrier connections")
 	fs.StringVar(&c.Profile, "profile", "", "fast | balanced | stable")
 	var recvMB, streamMB int

@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.3.0"
+SCRIPT_VER="1.4.0"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -584,6 +584,11 @@ screen_new_iran() {
     done
   fi
 
+  plainquic=""
+  if [ "$tr" = quic ]; then
+    dim "obfuscation scrambles QUIC packets so DPI can't fingerprint them (needed for Iran)"
+    yesno "obfuscate QUIC packets?" y || plainquic=1
+  fi
   proto=""; itype=""; irep=""; icode=""; sspsrc=""; spdst=""
   if [ "$car" = mdtp ]; then
     dim "47=GRE (sent with a real GRE header)  50=ESP  - or any 1-255 your route lets through"
@@ -671,6 +676,7 @@ screen_new_iran() {
   [ -n "$udpp" ]  && args+=(-udp-ports "$udpp")
   [ -n "$proto" ] && args+=(-proto "$proto")
   [ -n "$sspsrc" ] && args+=(-spoof-src "$sspsrc" -spoof-dst "$spdst")
+  [ -n "$plainquic" ] && args+=(-plain-quic)
   [ -n "$itype" ] && args+=(-icmp-type "$itype" -icmp-reply "$irep" -icmp-code "$icode")
   [ -n "$sub" ]   && args+=(-subnet "$sub" -mtu "$mtu")
   [ -n "$dd" ]    && args+=(-dns-domain "$dd")

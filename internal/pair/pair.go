@@ -38,6 +38,7 @@ type code struct {
 	Cc string `json:"cc,omitempty"`
 	Ss string `json:"ss,omitempty"` // iran spoof src
 	Sd string `json:"sd,omitempty"` // iran spoof dst
+	Pq bool   `json:"pq,omitempty"` // plain quic (obfs off)
 }
 
 // Encode is run on iran.
@@ -49,7 +50,7 @@ func Encode(c *config.Config) (string, error) {
 		P: c.Port, I: c.IranIP, K: c.KharejIP, S: c.PSK, Pr: c.Proto, It: c.ICMPType,
 		Ic: c.ICMPCode, Ir: c.ICMPRply, Sn: c.Subnet, M: c.MTU, Dd: c.DNSDomain, Mx: c.Mux,
 		Pf: c.Profile, Rb: c.RecvBuf, Sb: c.StreamBuf, Ka: c.KeepAlive, Cc: c.CC,
-		Ss: c.SpoofSrc, Sd: c.SpoofDst})
+		Ss: c.SpoofSrc, Sd: c.SpoofDst, Pq: c.PlainQUIC})
 	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
@@ -74,7 +75,7 @@ func Decode(s, name string) (*config.Config, error) {
 		ICMPType: p.It, ICMPCode: p.Ic, ICMPRply: p.Ir, Subnet: p.Sn, MTU: p.M,
 		DNSDomain: p.Dd, Mux: p.Mx,
 		Profile: p.Pf, RecvBuf: p.Rb, StreamBuf: p.Sb, KeepAlive: p.Ka, CC: p.Cc,
-		SpoofSrc: p.Sd, SpoofDst: p.Ss}
+		SpoofSrc: p.Sd, SpoofDst: p.Ss, PlainQUIC: p.Pq}
 	c.Defaults()
 	if err := c.Validate(); err != nil {
 		return nil, err

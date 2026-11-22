@@ -74,6 +74,7 @@ type Config struct {
 	MTU    int    `json:"mtu,omitempty"`
 
 	DNSDomain string `json:"dns_domain,omitempty"`
+	PlainQUIC bool   `json:"plain_quic,omitempty"` // quic: disable packet obfuscation
 
 	// Performance tuning. Profile picks sensible values for the rest; any
 	// field set explicitly (via Advanced) keeps its value.

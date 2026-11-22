@@ -62,6 +62,8 @@ If a route meters traffic by sender IP, you can forge the source address. When c
 
 - **QUIC mode:** runs over UDP with built-in multiplexing and TLS, so no HOL blocking and better than TCP on lossy links. Only works where UDP is open; fall back to TCP Forward otherwise. Auth/encryption come from the PSK (the TLS certificate is derived deterministically from the PSK and both ends pin it).
 
+- **QUIC obfuscation:** on by default; scrambles QUIC packets so DPI cannot fingerprint them as QUIC. Needed on the Iran line, where DPI drops raw QUIC packets. Both ends must be MDT (the key comes from the PSK).
+
 ## Checking
 
 - Menu → Manage → Status: `running · connected`.
