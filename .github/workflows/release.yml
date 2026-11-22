@@ -28,10 +28,12 @@ jobs:
 
       - name: Build
         id: build
+        env:
+          GOTOOLCHAIN: local
+          GOSUMDB: "off"
         run: |
           ver="$(grep -m1 '^SCRIPT_VER=' max-dark-tunnel.sh | cut -d'"' -f2)"
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
-          go mod tidy
           go vet ./...
           mkdir -p dist
           for arch in amd64 arm64; do

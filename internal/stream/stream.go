@@ -74,7 +74,15 @@ func (p *pool) open() (net.Conn, error) {
 }
 
 // Run blocks forever, keeping the carrier up and serving streams.
-func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Tracker) error {
+// Carrier abstracts how sessions are established (TCP+mux, or QUIC). It calls
+// serve for each session; the rest of Run (pool, forwarders, stream handling)
+// is carrier-agnostic.
+type Carrier interface {
+	Listen(ctx context.Context, cfg *config.Config, serve func(Session)) error
+	Dial(ctx context.Context, cfg *config.Config, serve func(Session)) error
+}
+
+func Run(ctx context.Context, cfg *config.Config, carrier Carrier, st *status.Tracker) error {
 	p := &pool{}
 	peer := cfg.PeerIP()
 
@@ -115,37 +123,52 @@ func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Trac
 	}
 
 	if cfg.Listens() {
-		addr := net.JoinHostPort(cfg.BindIP, strconv.Itoa(cfg.Port))
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			return err
-		}
-		log.Printf("carrier listening on %s (%s)", addr, cfg.Transport)
-		go func() { <-ctx.Done(); ln.Close() }()
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			tune(c, cfg.CC)
-			go func() {
-				s, err := build(c, false)
-				if err != nil {
-					log.Printf("rejected %s: %v", c.RemoteAddr(), err)
-					c.Close()
-					return
-				}
-				log.Printf("session from %s", c.RemoteAddr())
-				serve(s)
-			}()
-		}
+		return carrier.Listen(ctx, cfg, serve)
 	}
+	return carrier.Dial(ctx, cfg, serve)
+}
 
-	addr := net.JoinHostPort(peer, strconv.Itoa(cfg.Port))
+// ---------------------------------------------------------- TCP carrier -----
+
+// TCP returns a Carrier that runs the given stream builder (smux or ssh) over
+// a pool of encrypted TCP connections.
+func TCP(build Builder) Carrier { return tcpCarrier{build} }
+
+type tcpCarrier struct{ build Builder }
+
+func (t tcpCarrier) Listen(ctx context.Context, cfg *config.Config, serve func(Session)) error {
+	addr := net.JoinHostPort(cfg.BindIP, strconv.Itoa(cfg.Port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	log.Printf("carrier listening on %s (%s)", addr, cfg.Transport)
+	go func() { <-ctx.Done(); ln.Close() }()
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		tune(c, cfg.CC)
+		go func() {
+			s, err := t.build(c, false)
+			if err != nil {
+				log.Printf("rejected %s: %v", c.RemoteAddr(), err)
+				c.Close()
+				return
+			}
+			log.Printf("session from %s", c.RemoteAddr())
+			serve(s)
+		}()
+	}
+}
+
+func (t tcpCarrier) Dial(ctx context.Context, cfg *config.Config, serve func(Session)) error {
+	addr := net.JoinHostPort(cfg.PeerIP(), strconv.Itoa(cfg.Port))
 	log.Printf("carrier dialing %s (%s, %d sessions)", addr, cfg.Transport, cfg.Mux)
 	for i := 0; i < cfg.Mux; i++ {
 		go func(i int) {
@@ -155,7 +178,7 @@ func Run(ctx context.Context, cfg *config.Config, build Builder, st *status.Trac
 				if err == nil {
 					tune(c, cfg.CC)
 					var s Session
-					s, err = build(c, true)
+					s, err = t.build(c, true)
 					if err == nil {
 						backoff = time.Second
 						serve(s)

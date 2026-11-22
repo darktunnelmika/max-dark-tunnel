@@ -1,5 +1,4 @@
-go.work
-go.work.sum
 /t/
 /dist/
 /mdt
+/mdt-local

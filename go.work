@@ -1,0 +1,16 @@
+go 1.24
+
+use .
+
+replace golang.org/x/crypto => github.com/golang/crypto v0.26.0
+replace golang.org/x/exp => github.com/golang/exp v0.0.0-20240506185415-9bf2ced13842
+replace golang.org/x/net => github.com/golang/net v0.28.0
+replace golang.org/x/sync => github.com/golang/sync v0.8.0
+replace golang.org/x/sys => github.com/golang/sys v0.23.0
+replace golang.org/x/text => github.com/golang/text v0.17.0
+replace golang.org/x/time => github.com/golang/time v0.5.0
+replace golang.org/x/mod => github.com/golang/mod v0.17.0
+replace golang.org/x/tools => github.com/golang/tools v0.21.0
+replace cloud.google.com/go => ./.stubs/cloudgo
+replace google.golang.org/protobuf => ./.stubs/protobuf
+replace github.com/francoispqt/gojay => ./.stubs/gojay

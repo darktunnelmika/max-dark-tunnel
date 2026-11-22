@@ -14,7 +14,7 @@
 #  MAXDARK-TUNNEL-SCRIPT
 # ==============================================================================
 
-SCRIPT_VER="1.2.0"
+SCRIPT_VER="1.3.0"
 DEV_ID="@mikakhadm"
 
 GH_REPO="darktunnelmika/max-dark-tunnel"
@@ -536,12 +536,13 @@ screen_new_iran() {
 
   echo; top; sect "TRANSPORT"
   item 1 "TCP Forward" "multiplexed, encrypted - best start"
-  item 2 "Tun" "layer 3: MDTprotocol / ICMP / TCP / UDP"
-  item 3 "DNS" "tun over udp/53"
-  item 4 "SSH" "tcp forward over ssh"
+  item 2 "QUIC" "native mux over TLS/UDP - no HOL blocking"
+  item 3 "Tun" "layer 3: MDTprotocol / ICMP / TCP / UDP"
+  item 4 "DNS" "tun over udp/53"
+  item 5 "SSH" "tcp forward over ssh"
   bot
   ask "transport" "1"
-  case "$ANS" in 2) tr=tun ;; 3) tr=dns ;; 4) tr=ssh ;; *) tr=tcp ;; esac
+  case "$ANS" in 2) tr=quic ;; 3) tr=tun ;; 4) tr=dns ;; 5) tr=ssh ;; *) tr=tcp ;; esac
 
   car=""
   if [ "$tr" = tun ]; then
@@ -557,7 +558,7 @@ screen_new_iran() {
 
   # direction only matters where one side dials the other
   dir=""
-  if [ "$tr" = tcp ] || [ "$tr" = ssh ] || [ "$car" = tcp ] || [ "$car" = udp ]; then
+  if [ "$tr" = tcp ] || [ "$tr" = ssh ] || [ "$tr" = quic ] || [ "$car" = tcp ] || [ "$car" = udp ]; then
     local ddef=1; [ "$tr" = ssh ] && ddef=2
     echo
     dim "reverse: IRAN listens, KHAREJ dials in (works when IRAN blocks outbound)"
@@ -576,7 +577,7 @@ screen_new_iran() {
       valid_port "$port" || { bad "1-65535"; continue; }
       [ "$tr" = ssh ] && [ "$port" = 22 ] && { bad "22 is the real sshd - pick another"; continue; }
       if [ "$dir" = reverse ] && [ "$tr" != dns ]; then
-        local pp=tcp; [ "$car" = udp ] && pp=udp
+        local pp=tcp; { [ "$car" = udp ] || [ "$tr" = quic ]; } && pp=udp
         check_ports_free "$pp" "$port" || continue
       fi
       break
@@ -683,7 +684,7 @@ screen_new_iran() {
 
   # firewall: the carrier port (when we listen) and every user port
   if [ -n "$port" ] && { [ "$dir" = reverse ] && [ "$tr" != dns ]; }; then
-    [ "$car" = udp ] && open_fw udp "$port" || open_fw tcp "$port"
+    { [ "$car" = udp ] || [ "$tr" = quic ]; } && open_fw udp "$port" || open_fw tcp "$port"
   fi
   local p
   for p in ${tcpp//,/ }; do open_fw tcp "${p%%>*}"; done
@@ -718,7 +719,7 @@ join_code() {  # join_code CODE [quiet]
   [ -n "$(cfg_get "$name" spoof_src)" ] && loosen_rp_filter
   if [ "$tr" = dns ]; then open_fw udp "$port"
   elif [ "$dir" = direct ] && [ -n "$port" ]; then
-    [ "$car" = udp ] && open_fw udp "$port" || open_fw tcp "$port"
+    { [ "$car" = udp ] || [ "$tr" = quic ]; } && open_fw udp "$port" || open_fw tcp "$port"
   fi
   if [ "$car" = icmp ] && [ "$(cfg_get "$name" icmp_type)" = 8 ] && [ "${2:-}" != quiet ]; then
     dim "the kernel answers every ICMP echo too, doubling upstream traffic."

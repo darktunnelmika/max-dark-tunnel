@@ -95,9 +95,11 @@ func cmdRun(args []string) error {
 
 	switch cfg.Transport {
 	case config.TransportTCP:
-		err = stream.Run(ctx, cfg, stream.Smux(cfg), st)
+		err = stream.Run(ctx, cfg, stream.TCP(stream.Smux(cfg)), st)
 	case config.TransportSSH:
-		err = stream.Run(ctx, cfg, stream.SSH(cfg.PSK), st)
+		err = stream.Run(ctx, cfg, stream.TCP(stream.SSH(cfg.PSK)), st)
+	case config.TransportQUIC:
+		err = stream.Run(ctx, cfg, stream.QUIC(), st)
 	case config.TransportTun, config.TransportDNS:
 		err = tun.Run(ctx, cfg, st)
 	}
@@ -113,7 +115,7 @@ func cmdNew(args []string) error {
 	out := fs.String("o", "", "output file")
 	fs.StringVar(&c.Name, "name", "", "tunnel name")
 	fs.StringVar(&c.Role, "role", "iran", "iran | kharej")
-	fs.StringVar(&c.Transport, "transport", "tcp", "tcp | tun | dns | ssh")
+	fs.StringVar(&c.Transport, "transport", "tcp", "tcp | quic | tun | dns | ssh")
 	fs.StringVar(&c.Carrier, "carrier", "", "tun carrier: mdtp | icmp | tcp | udp")
 	fs.StringVar(&c.Direction, "direction", "", "reverse | direct")
 	fs.IntVar(&c.Port, "port", 0, "carrier port")

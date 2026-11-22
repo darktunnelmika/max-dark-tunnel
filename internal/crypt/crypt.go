@@ -30,6 +30,12 @@ func Derive(psk string, salt []byte, info string, n int) []byte {
 	return out
 }
 
+// Stream returns a deterministic byte stream bound to the PSK and a label,
+// for seeding a deterministic key generator.
+func Stream(psk, info string) io.Reader {
+	return hkdf.New(sha256.New, []byte(psk), nil, []byte("max-dark-tunnel/"+info))
+}
+
 // ---------------------------------------------------------------- packets --
 
 // Packet seals and opens datagrams. Send and receive keys differ per side.

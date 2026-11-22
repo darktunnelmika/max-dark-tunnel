@@ -30,6 +30,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/darktunnelmika/max-dark-tunnel
 | # | Type | What | Default port |
 |---|---|---|---|
 | 1 | **TCP Forward** | multiplexed streams (smux) over one encrypted carrier, reverse or direct | 443 |
+| - | **QUIC** | native stream mux over TLS/UDP, no head-of-line blocking; strongest/fastest where UDP is open | 443 |
 | 2 | **Tun · MDTprotocol** | layer 3 over a raw IP protocol (GRE 47, ESP 50, any 1-255) | — |
 | 2 | **Tun · ICMP** | looks like ping; type/code configurable | — |
 | 2 | **Tun · TCP / UDP** | layer 3 inside encrypted TCP or UDP | 443 |
@@ -58,6 +59,8 @@ The profile travels in the pair code, so both ends match; change it later from `
 If a route meters traffic by sender IP, you can forge the source address. When creating an MDTprotocol tunnel the wizard asks for a fake source IP for each server; they are cross-paired (each side's SRC = the other's DST) and carried in the pair code. Packets still go to the peer's real IP — only the sender field changes.
 
 **Warning:** most datacenters drop spoofed-source packets and the tunnel won't come up. Build without spoof first, enable it only if needed. When spoof is on the script sets reverse-path filtering to loose mode so the packets aren't dropped locally.
+
+- **QUIC mode:** runs over UDP with built-in multiplexing and TLS, so no HOL blocking and better than TCP on lossy links. Only works where UDP is open; fall back to TCP Forward otherwise. Auth/encryption come from the PSK (the TLS certificate is derived deterministically from the PSK and both ends pin it).
 
 ## Checking
 

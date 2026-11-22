@@ -18,10 +18,11 @@ import (
 
 // Transports, mirroring the installer menu.
 const (
-	TransportTCP = "tcp" // TCP Forward: multiplexed streams over one encrypted carrier
-	TransportTun = "tun" // layer-3 tun device over a selectable carrier
-	TransportDNS = "dns" // tun over DNS-shaped UDP
-	TransportSSH = "ssh" // TCP Forward over an embedded SSH session
+	TransportTCP  = "tcp"  // TCP Forward: multiplexed streams over one encrypted carrier
+	TransportTun  = "tun"  // layer-3 tun device over a selectable carrier
+	TransportDNS  = "dns"  // tun over DNS-shaped UDP
+	TransportSSH  = "ssh"  // TCP Forward over an embedded SSH session
+	TransportQUIC = "quic" // native-mux TLS tunnel over UDP
 )
 
 // Carriers for TransportTun.
@@ -134,6 +135,8 @@ func (c *Config) Defaults() {
 		def(&c.Port, 443)
 	case TransportSSH:
 		def(&c.Port, 2020)
+	case TransportQUIC:
+		def(&c.Port, 443)
 	case TransportDNS:
 		def(&c.Port, 53)
 		if c.DNSDomain == "" {
@@ -249,7 +252,7 @@ func (c *Config) Validate() error {
 		return errors.New("psk too short")
 	}
 	switch c.Transport {
-	case TransportTCP, TransportSSH, TransportDNS:
+	case TransportTCP, TransportSSH, TransportDNS, TransportQUIC:
 	case TransportTun:
 		switch c.Carrier {
 		case CarrierMDTP, CarrierICMP, CarrierTCP, CarrierUDP:
